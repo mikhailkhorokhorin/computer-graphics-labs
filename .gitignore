@@ -1,0 +1,4 @@
+build-*/
+shaders/*.spv
+imgui.ini
+data/
