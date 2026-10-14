@@ -1,47 +1,80 @@
 {
-	"version": 2,
-	"configurePresets": [
-		{
-			"name": "common",
-			"hidden": true,
-			"generator": "Ninja",
-			"cacheVariables": {}
-		},
-		{
-			"name": "debug",
-			"inherits": "common",
-			"binaryDir": "build-debug",
-			"cacheVariables": {
-				"CMAKE_BUILD_TYPE": "Debug"
-			}
-		},
-		{
-			"name": "release",
-			"inherits": "common",
-			"binaryDir": "build-release",
-			"cacheVariables": {
-				"CMAKE_BUILD_TYPE": "Release"
-			}
-		},
-		{
-			"name": "msvc-debug",
-			"inherits": "debug",
-			"generator": "Visual Studio 17 2022"
-		},
-		{
-			"name": "msvc-release",
-			"inherits": "release",
-			"generator": "Visual Studio 17 2022"
-		},
-		{
-			"name": "mingw-debug",
-			"inherits": "debug",
-			"generator": "MinGW Makefiles"
-		},
-		{
-			"name": "mingw-release",
-			"inherits": "release",
-			"generator": "MinGW Makefiles"
-		}
-	]
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "debug",
+      "inherits": "base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "release",
+      "inherits": "base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "mingw-debug",
+      "inherits": "base",
+      "generator": "MinGW Makefiles",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "mingw-release",
+      "inherits": "base",
+      "generator": "MinGW Makefiles",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "msvc-debug",
+      "inherits": "base",
+      "generator": "Visual Studio 17 2022"
+    },
+    {
+      "name": "msvc-release",
+      "inherits": "base",
+      "generator": "Visual Studio 17 2022"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "mingw-debug",
+      "configurePreset": "mingw-debug"
+    },
+    {
+      "name": "mingw-release",
+      "configurePreset": "mingw-release"
+    },
+    {
+      "name": "msvc-debug",
+      "configurePreset": "msvc-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "msvc-release",
+      "configurePreset": "msvc-release",
+      "configuration": "Release"
+    }
+  ]
 }
