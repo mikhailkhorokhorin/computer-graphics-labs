@@ -28,8 +28,11 @@ Reports: [Russian](docs/report-ru.pdf), [English](docs/report-en.pdf).
 
 ## Notes
 
-- The normal of a face is $\mathbf{n} = \frac{(b - a) \times (c - a)}{|(b - a) \times (c - a)|}$, faces do not share vertices, so the lighting is flat.
-- The view matrix is $V = \operatorname{lookAt}(p, p + f, up)$ with $f = (\cos\theta \sin\varphi, \sin\theta, -\cos\theta \cos\varphi)$ for yaw $\varphi$ and pitch $\theta$.
+- The normal of a face is $n = \frac{(b - a) \times (c - a)}{\lVert (b - a) \times (c - a) \rVert}$, faces do not share vertices, so the lighting is flat.
+- The view matrix is $V = \operatorname{lookAt}(p, p + f, \text{up})$ with $f = (\cos\theta \sin\varphi, \sin\theta, -\cos\theta \cos\varphi)$ for yaw $\varphi$ and pitch $\theta$.
 - Normals go to world space with the normal matrix $(M^{-1})^T$.
-- With $l = -d$, $h = \frac{l + v}{|l + v|}$: $C = k_a A \cdot \text{albedo} + (\text{albedo} \max(n \cdot l, 0) + \text{specular} \max(n \cdot h, 0)^{s}) \cdot L$.
+- With the light direction $d$, $l = -d$, the direction to the camera $v$ and $h = \frac{l + v}{\lVert l + v \rVert}$, the color is
+  $C = k_a A \cdot \text{albedo} + \text{albedo} \max(n \cdot l, 0) L + \text{specular} \max(n \cdot h, 0)^{s} L$,
+  where $A$ and $k_a$ are the ambient color and intensity, $L$ is the light color times its intensity and $s$ is the shininess;
+  colors are multiplied component-wise, and the specular term is zero when $n \cdot l \le 0$.
 - All uniform fields are `mat4` or `vec4`, so the std140 layout matches the C++ structure without padding.
