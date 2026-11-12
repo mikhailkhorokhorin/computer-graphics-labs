@@ -24,8 +24,6 @@ The `Lab 2` window holds the camera position, yaw, pitch and field of view, the 
 ![Changed light direction and color](docs/screenshots/02.png)
 ![Changed camera and material](docs/screenshots/03.png)
 
-Reports: [Russian](docs/report-ru.pdf), [English](docs/report-en.pdf).
-
 ## Notes
 
 - The normal of a face is $n = \frac{(b - a) \times (c - a)}{\lVert (b - a) \times (c - a) \rVert}$, faces do not share vertices, so the lighting is flat.

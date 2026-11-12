@@ -1,6 +1,8 @@
 #version 450
 
-layout(set = 0, binding = 0, std140) uniform Uniforms {
+// Вершина -> clip-пространство через MVP, цвет грани дальше во фрагментный шейдер
+
+layout(set = 0, binding = 0) uniform Uniforms {
 	mat4 mvp;
 } uniforms;
 

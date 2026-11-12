@@ -1,5 +1,7 @@
 #version 450
 
+// Блинн-Фонг: ambient + diffuse + specular от одного направленного источника
+
 layout(set = 0, binding = 0, std140) uniform Uniforms {
 	mat4 model;
 	mat4 view_projection;

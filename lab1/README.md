@@ -23,8 +23,6 @@ The `Lab 1` window shows the frame rate and the `Rotation speed` slider in rad/s
 ![Truncated tetrahedron](docs/screenshots/01.png)
 ![Hexagonal face](docs/screenshots/02.png)
 
-Reports: [Russian](docs/report-ru.pdf), [English](docs/report-en.pdf).
-
 ## Notes
 
 - The tetrahedron corners are $(1, 1, 1)$, $(1, -1, -1)$, $(-1, 1, -1)$, $(-1, -1, 1)$; every edge $A_iA_j$ is cut at one third, $P_{ij} = \frac{2A_i + A_j}{3}$, which gives 12 vertices, 18 edges and 8 faces.
