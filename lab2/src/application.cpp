@@ -22,11 +22,14 @@ namespace {
 
 // ===== Данные: формат вершины, uniform-буфер, объекты Vulkan, параметры сцены из меню =====
 
+// Вместо цвета (лаба 1) у вершины теперь нормаль — она нужна для освещения
 struct Vertex {
 	glm::vec3 position;
 	glm::vec3 normal;
 };
 
+// Всё для освещения в одном uniform-буфере. Только mat4 и vec4 — тогда раскладка std140
+// в шейдере совпадает с C++ без пропусков. Лишнее число кладём в w (интенсивность, блеск)
 struct Uniforms {
 	glm::mat4 model;
 	glm::mat4 view_projection;
@@ -39,6 +42,7 @@ struct Uniforms {
 	glm::vec4 specular;
 };
 
+// Буфер Vulkan + его память (выделяет VMA) + указатель на эту память для записи с CPU
 struct Buffer {
 	VkBuffer buffer = VK_NULL_HANDLE;
 	VmaAllocation allocation = VK_NULL_HANDLE;
@@ -54,19 +58,23 @@ VkDescriptorSet descriptor_set;
 VkPipelineLayout pipeline_layout;
 VkPipeline pipeline;
 
+// Камера: позиция, поворот (yaw — влево-вправо, pitch — вверх-вниз) и угол обзора
 glm::vec3 camera_position(0.0f, 1.0f, 3.5f);
 float camera_yaw = 0.0f;
 float camera_pitch = glm::radians(-15.0f);
 float camera_fov = glm::radians(60.0f);
 
+// Направленный свет: откуда светит (азимут и высота), цвет и интенсивность
 float light_azimuth = glm::radians(40.0f);
 float light_elevation = glm::radians(45.0f);
 glm::vec3 light_color(1.0f);
 float light_intensity = 1.0f;
 
+// Рассеянный свет, который есть везде
 glm::vec3 ambient_color(1.0f);
 float ambient_intensity = 0.15f;
 
+// Материал: основной цвет, цвет блика и коэффициент блеска
 glm::vec3 albedo(0.85f, 0.45f, 0.30f);
 glm::vec3 specular_color(1.0f);
 float shininess = 32.0f;
@@ -79,11 +87,15 @@ Uniforms uniforms;
 // ===== Фигура: усечённый тетраэдр, у каждой грани своя нормаль =====
 
 void buildMesh(std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
+	// Правильный тетраэдр — вершины куба через одну
 	const glm::vec3 corners[4] = {{1, 1, 1}, {1, -1, -1}, {-1, 1, -1}, {-1, -1, 1}};
 
+	// Точка среза на ребре i -> j на трети длины: (2*A_i + A_j) / 3, нормализованная
 	auto cut = [&](int i, int j) { return glm::normalize(2.0f * corners[i] + corners[j]); };
 
 	auto addFace = [&](std::vector<glm::vec3> points) {
+		// Нормаль грани — векторное произведение двух её сторон.
+		// Если смотрит внутрь фигуры, разворачиваем и нормаль, и порядок вершин
 		glm::vec3 center(0.0f);
 		for (auto& p : points) center += p;
 		glm::vec3 normal = glm::normalize(glm::cross(points[1] - points[0], points[2] - points[0]));
@@ -92,13 +104,16 @@ void buildMesh(std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
 			normal = -normal;
 		}
 
+		// Вершины граней не общие, у всех вершин грани одна нормаль — освещение плоское
 		const auto first = uint16_t(vertices.size());
 		for (auto& p : points) vertices.push_back({p, normal});
+		// Веер треугольников: (0,1,2), (0,2,3), ...
 		for (size_t i = 1; i + 1 < points.size(); ++i) {
 			indices.insert(indices.end(), {first, uint16_t(first + i), uint16_t(first + i + 1)});
 		}
 	};
 
+	// Для каждой вершины i: треугольник на месте среза и шестиугольник на месте бывшей грани abc
 	for (int i = 0; i < 4; ++i) {
 		const int a = (i + 1) % 4, b = (i + 2) % 4, c = (i + 3) % 4;
 		addFace({cut(i, a), cut(i, b), cut(i, c)});
@@ -121,6 +136,7 @@ bool initialize() {
 	ImGui::GetStyle().FontScaleMain = 1.8f;
 	ImGui::GetStyle().ScaleAllSizes(1.8f);
 
+	// Буфер в памяти, которую видят и CPU, и GPU; если data передан — сразу копируем в него
 	auto createBuffer = [&](VkDeviceSize size, VkBufferUsageFlags usage, const void* data, Buffer& b) {
 		const VkBufferCreateInfo info = {
 			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -141,6 +157,7 @@ bool initialize() {
 		return true;
 	};
 
+	// Вершины и индексы — один раз, uniform-буфер заполняется каждый кадр
 	const VkDeviceSize vertices_size = vertices.size() * sizeof(Vertex);
 	const VkDeviceSize indices_size = indices.size() * sizeof(uint16_t);
 	bool ok = createBuffer(vertices_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertices.data(), vertex_buffer);
@@ -148,6 +165,7 @@ bool initialize() {
 	ok = ok && createBuffer(sizeof(Uniforms), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, nullptr, uniform_buffer);
 	if (!ok) return false;
 
+	// Слот 0 — uniform-буфер; теперь его читают оба шейдера (фрагментный считает свет)
 	const VkDescriptorSetLayoutBinding set_binding = {
 		.binding = 0,
 		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -163,6 +181,7 @@ bool initialize() {
 		return false;
 	}
 
+	// Пул на 1 набор с 1 uniform-буфером
 	const VkDescriptorPoolSize pool_size = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
 	const VkDescriptorPoolCreateInfo pool_info = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -184,6 +203,7 @@ bool initialize() {
 		return false;
 	}
 
+	// Кладём в слот 0 ссылку на uniform-буфер
 	const VkDescriptorBufferInfo buffer_info = {uniform_buffer.buffer, 0, sizeof(Uniforms)};
 	const VkWriteDescriptorSet write = {
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -204,6 +224,7 @@ bool initialize() {
 		return false;
 	}
 
+	// Читаем SPIR-V (glslc компилирует его из GLSL при сборке) и создаём модуль шейдера
 	auto loadShader = [&](const char* path) {
 		VkShaderModule module = VK_NULL_HANDLE;
 		std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -237,6 +258,7 @@ bool initialize() {
 		},
 	};
 
+	// Атрибут 0 — позиция, атрибут 1 — нормаль
 	const VkVertexInputBindingDescription vertex_binding = {0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
 	const VkVertexInputAttributeDescription attributes[] = {
 		{0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
@@ -249,6 +271,8 @@ bool initialize() {
 		.vertexAttributeDescriptionCount = 2,
 		.pVertexAttributeDescriptions = attributes,
 	};
+	// Остальные настройки конвейера — как в лабе 1: треугольники, отсечение задних граней,
+	// тест глубины, без смешивания, динамические viewport и scissor
 	const VkPipelineInputAssemblyStateCreateInfo assembly = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
 		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -329,6 +353,7 @@ void update(double time) {
 	const float dt = previous_time < 0 ? 0.0f : std::min(float(time - previous_time), 0.1f);
 	previous_time = time;
 
+	// Меню: каждый виджет получает адрес переменной и сам меняет её
 	const ImGuiSliderFlags clamp = ImGuiSliderFlags_AlwaysClamp;
 	ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
 	ImGui::Begin("Lab 2", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
@@ -336,6 +361,7 @@ void update(double time) {
 	if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::DragFloat3("Position", &camera_position.x, 0.01f);
 		ImGui::SliderAngle("Yaw", &camera_yaw, -180.0f, 180.0f);
+		// Pitch до ±89°: при 90° взгляд параллелен «верху» и lookAt вырождается
 		ImGui::SliderAngle("Pitch", &camera_pitch, -89.0f, 89.0f, "%.0f deg", clamp);
 		ImGui::SliderAngle("Field of view", &camera_fov, 20.0f, 120.0f, "%.0f deg", clamp);
 	}
@@ -362,17 +388,20 @@ void update(double time) {
 	const auto extent = graphics::internal::context.swapchain_extent;
 	const float aspect = float(extent.width) / float(extent.height);
 	const glm::vec3 axis = glm::normalize(glm::vec3(0.3f, 1.0f, 0.2f));
+	// Куда смотрит камера, из yaw и pitch (при нулях — вдоль -Z)
 	const glm::vec3 forward = {
 		std::cos(camera_pitch) * std::sin(camera_yaw),
 		std::sin(camera_pitch),
 		-std::cos(camera_pitch) * std::cos(camera_yaw),
 	};
+	// Направление НА источник света из азимута и высоты
 	const glm::vec3 to_light = {
 		std::cos(light_elevation) * std::sin(light_azimuth),
 		std::sin(light_elevation),
 		std::cos(light_elevation) * std::cos(light_azimuth),
 	};
 
+	// M — поворот фигуры, V — камера из позиции смотрит вдоль forward, P — перспектива с углом из меню
 	const glm::mat4 model = glm::rotate(glm::mat4(1.0f), rotation_angle, axis);
 	const glm::mat4 view = glm::lookAt(camera_position, camera_position + forward, glm::vec3(0.0f, 1.0f, 0.0f));
 	glm::mat4 projection = glm::perspectiveRH_ZO(camera_fov, aspect, 0.1f, 100.0f);
@@ -381,8 +410,10 @@ void update(double time) {
 	uniforms = {
 		.model = model,
 		.view_projection = projection * view,
+		// Матрица нормалей (M^-1)^T: правильно поворачивает нормали (при растяжении M — нет)
 		.normal_matrix = glm::mat4(glm::transpose(glm::inverse(glm::mat3(model)))),
 		.camera_position = glm::vec4(camera_position, 1.0f),
+		// В буфер кладём направление лучей — от источника, поэтому минус
 		.light_direction = glm::vec4(-to_light, 0.0f),
 		.light_color = glm::vec4(light_color, light_intensity),
 		.ambient_color = glm::vec4(ambient_color, ambient_intensity),
@@ -398,6 +429,7 @@ void render(const graphics::internal::FrameData& fd) {
 	const VkCommandBuffer cmd = fd.command_buffer;
 	if (cmd == VK_NULL_HANDLE) return;
 
+	// Свежие параметры кадра в uniform-буфер
 	std::memcpy(uniform_buffer.mapped, &uniforms, sizeof(Uniforms));
 	vmaFlushAllocation(context.allocator, uniform_buffer.allocation, 0, sizeof(Uniforms));
 
@@ -408,6 +440,7 @@ void render(const graphics::internal::FrameData& fd) {
 	};
 	vkBeginCommandBuffer(cmd, &begin);
 
+	// Очистка: фон и глубина 1.0
 	const VkClearValue clear[] = {
 		{.color = {{0.08f, 0.08f, 0.1f, 1.0f}}},
 		{.depthStencil = {1.0f, 0}},
@@ -428,6 +461,7 @@ void render(const graphics::internal::FrameData& fd) {
 	vkCmdSetViewport(cmd, 0, 1, &viewport);
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+	// Подключаем конвейер, буферы, дескрипторы и рисуем
 	const VkDeviceSize offset = 0;
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 	vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.buffer, &offset);
