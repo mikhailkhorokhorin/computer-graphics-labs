@@ -1,5 +1,7 @@
 # Lab 2. Camera and Lighting: Blinn-Phong
 
+The truncated tetrahedron from lab 1 seen through a movable camera and lit by a directional light with the Blinn-Phong model, with every parameter controlled from ImGui.
+
 ## Task
 
 Draw the object from lab 1 relative to a movable camera and light it with the Blinn-Phong model.
@@ -20,16 +22,19 @@ On Windows run `mingw32-make run LAB=lab2`; the preset is chosen by `PRESET=` (`
 
 The `Lab 2` window holds the camera position, yaw, pitch and field of view, the light azimuth, elevation, color and intensity, the ambient color and intensity, the material albedo, specular color and shininess, and the rotation speed.
 
-![Default parameters](docs/screenshots/01.png)
-![Changed light direction and color](docs/screenshots/02.png)
-![Changed camera and material](docs/screenshots/03.png)
+![Default parameters with a specular highlight](docs/screenshots/01.png)
+
+![Warm light from the left and bluish ambient light](docs/screenshots/02.png)
+
+![Moved camera, teal material and low shininess](docs/screenshots/03.png)
 
 ## Notes
 
 - The normal of a face is $n = \frac{(b - a) \times (c - a)}{\lVert (b - a) \times (c - a) \rVert}$, faces do not share vertices, so the lighting is flat.
-- The view matrix is $V = \operatorname{lookAt}(p, p + f, \text{up})$ with $f = (\cos\theta \sin\varphi, \sin\theta, -\cos\theta \cos\varphi)$ for yaw $\varphi$ and pitch $\theta$.
-- Normals go to world space with the normal matrix $(M^{-1})^T$.
-- With the light direction $d$, $l = -d$, the direction to the camera $v$ and $h = \frac{l + v}{\lVert l + v \rVert}$, the color is
+- The view direction for yaw $\varphi$ and pitch $\theta$ is $f = (\cos\theta \sin\varphi, \sin\theta, -\cos\theta \cos\varphi)$ and $V = \operatorname{lookAt}(p, p + f, \text{up})$; the pitch is limited to $\pm 89°$, where `lookAt` stays defined.
+- The direction to the light for azimuth $a$ and elevation $e$ is $t = (\cos e \sin a, \sin e, \cos e \cos a)$; the uniform buffer stores the ray direction $d = -t$.
+- The vertex shader passes the world position and the normal transformed by the normal matrix $(M^{-1})^T$; the lighting is computed per fragment.
+- With $l = -d$, the direction to the camera $v$ and $h = \frac{l + v}{\lVert l + v \rVert}$, the color is
   $C = k_a A \cdot \text{albedo} + \text{albedo} \max(n \cdot l, 0) L + \text{specular} \max(n \cdot h, 0)^{s} L$,
   where $A$ and $k_a$ are the ambient color and intensity, $L$ is the light color times its intensity and $s$ is the shininess;
   colors are multiplied component-wise, and the specular term is zero when $n \cdot l \le 0$.
