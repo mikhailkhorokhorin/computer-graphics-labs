@@ -32,7 +32,7 @@ The `Lab 4` window holds the camera, light, ambient and material parameters of l
 
 - The device is created with Vulkan 1.3 and the `dynamicRendering` feature; the shadow pass uses `vkCmdBeginRendering` with a single depth attachment and no `VkRenderPass` or `VkFramebuffer`.
 - The shadow map is a 2048×2048 `VK_FORMAT_D16_UNORM` image; every frame it goes to `DEPTH_STENCIL_ATTACHMENT_OPTIMAL`, receives the depth of the scene and goes to `SHADER_READ_ONLY_OPTIMAL` before the main render pass.
-- The shadow pipeline has only a vertex shader, which computes $L \cdot M \cdot p$ with $L = O \cdot \operatorname{lookAt}(10\,t, 0, \text{up})$, where $t$ is the direction to the sun and $O$ is `glm::orthoRH_ZO` over $[-a, a]^2$ for the area $a$ and depths from 1 to 20.
+- The shadow pipeline has only a vertex shader, which computes $L \cdot M \cdot p$ with $L = O \cdot \mathrm{lookAt}(10\,t, 0, \text{up})$, where $t$ is the direction to the sun and $O$ is `glm::orthoRH_ZO` over $[-a, a]^2$ for the area $a$ and depths from 1 to 20.
 - The depth bias is the rasterizer bias of the shadow pipeline, set every frame by `vkCmdSetDepthBias` with the constant and slope factors from the interface; without it the floor shadows itself (shadow acne).
 - The shadow sampler has `compareEnable` with `VK_COMPARE_OP_LESS`, linear filtering and a white border, so `texture(sampler2DShadow, (uv, z))` returns the lit fraction, and everything outside the projection area is lit.
 - In the main fragment shader the light-space position gives $\text{uv} = 0.5 + 0.5\,\text{ndc}_{xy}$ and $z = \text{ndc}_z$; the shadow factor multiplies the diffuse and specular terms, the ambient term stays.

@@ -31,7 +31,7 @@ The `Lab 2` window holds the camera position, yaw, pitch and field of view, the 
 ## Notes
 
 - The normal of a face is $n = \frac{(b - a) \times (c - a)}{\lVert (b - a) \times (c - a) \rVert}$, faces do not share vertices, so the lighting is flat.
-- The view direction for yaw $\varphi$ and pitch $\theta$ is $f = (\cos\theta \sin\varphi, \sin\theta, -\cos\theta \cos\varphi)$ and $V = \operatorname{lookAt}(p, p + f, \text{up})$; the pitch is limited to $\pm 89°$, where `lookAt` stays defined.
+- The view direction for yaw $\varphi$ and pitch $\theta$ is $f = (\cos\theta \sin\varphi, \sin\theta, -\cos\theta \cos\varphi)$ and $V = \mathrm{lookAt}(p, p + f, \text{up})$; the pitch is limited to $\pm 89^\circ$, where `lookAt` stays defined.
 - The direction to the light for azimuth $a$ and elevation $e$ is $t = (\cos e \sin a, \sin e, \cos e \cos a)$; the uniform buffer stores the ray direction $d = -t$.
 - The vertex shader passes the world position and the normal transformed by the normal matrix $(M^{-1})^T$; the lighting is computed per fragment.
 - With $l = -d$, the direction to the camera $v$ and $h = \frac{l + v}{\lVert l + v \rVert}$, the color is
