@@ -21,16 +21,12 @@ namespace application {
 
 namespace {
 
-// ===== Данные: формат вершины, uniform-буфер, объекты Vulkan, параметры сцены из меню =====
-
-// К позиции и нормали добавились текстурные координаты uv (точка на картинке, от 0 до 1)
 struct Vertex {
 	glm::vec3 position;
 	glm::vec3 normal;
 	glm::vec2 uv;
 };
 
-// Как в лабе 2, но без albedo — основной цвет теперь берётся из текстуры
 struct Uniforms {
 	glm::mat4 model;
 	glm::mat4 view_projection;
@@ -42,7 +38,6 @@ struct Uniforms {
 	glm::vec4 specular;
 };
 
-// Буфер Vulkan + его память (VMA) + указатель для CPU (только у буферов в RAM)
 struct Buffer {
 	VkBuffer buffer = VK_NULL_HANDLE;
 	VmaAllocation allocation = VK_NULL_HANDLE;
@@ -52,7 +47,6 @@ struct Buffer {
 Buffer vertex_buffer, index_buffer, uniform_buffer;
 uint32_t index_count = 0;
 
-// Текстура: изображение в памяти GPU, «вид» на него для шейдера и сэмплер (как читать пиксели)
 VkImage texture_image;
 VmaAllocation texture_allocation;
 VkImageView texture_view;
@@ -64,23 +58,19 @@ VkDescriptorSet descriptor_set;
 VkPipelineLayout pipeline_layout;
 VkPipeline pipeline;
 
-// Камера: позиция, поворот и угол обзора
 glm::vec3 camera_position(0.0f, 1.0f, 3.5f);
 float camera_yaw = 0.0f;
 float camera_pitch = glm::radians(-15.0f);
 float camera_fov = glm::radians(60.0f);
 
-// Направленный свет: откуда светит, цвет и интенсивность
 float light_azimuth = glm::radians(40.0f);
 float light_elevation = glm::radians(45.0f);
 glm::vec3 light_color(1.0f);
 float light_intensity = 1.0f;
 
-// Рассеянный свет
 glm::vec3 ambient_color(1.0f);
 float ambient_intensity = 0.15f;
 
-// Материал: цвет блика и блеск (альбедо — из текстуры)
 glm::vec3 specular_color(0.5f);
 float shininess = 32.0f;
 
@@ -89,16 +79,12 @@ float rotation_angle = 0.0f;
 double previous_time = -1.0;
 Uniforms uniforms;
 
-// ===== Фигура: усечённый тетраэдр, у каждой грани своя нормаль и плоская развёртка UV =====
-
 void buildMesh(std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
 	const glm::vec3 corners[4] = {{1, 1, 1}, {1, -1, -1}, {-1, 1, -1}, {-1, -1, 1}};
 
-	// Точка среза на ребре i -> j на трети длины, нормализованная
 	auto cut = [&](int i, int j) { return glm::normalize(2.0f * corners[i] + corners[j]); };
 
 	auto addFace = [&](std::vector<glm::vec3> points) {
-		// Центр грани нужен и для проверки нормали, и для UV
 		glm::vec3 center(0.0f);
 		for (auto& p : points) center += p;
 		center /= float(points.size());
@@ -108,22 +94,18 @@ void buildMesh(std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
 			normal = -normal;
 		}
 
-		// UV: две оси в плоскости грани (вдоль первого ребра и перпендикулярно ему),
-		// координаты точки относительно центра; 0.55 вписывает самую большую грань в [0, 1]
 		const glm::vec3 u_axis = glm::normalize(points[1] - points[0]);
-		const glm::vec3 v_axis = glm::cross(normal, u_axis);
+		const glm::vec3 v_axis = glm::cross(u_axis, normal);
 		const auto first = uint16_t(vertices.size());
 		for (auto& p : points) {
 			const glm::vec3 d = p - center;
 			vertices.push_back({p, normal, 0.5f + 0.55f * glm::vec2(glm::dot(d, u_axis), glm::dot(d, v_axis))});
 		}
-		// Веер треугольников: (0,1,2), (0,2,3), ...
 		for (size_t i = 1; i + 1 < points.size(); ++i) {
 			indices.insert(indices.end(), {first, uint16_t(first + i), uint16_t(first + i + 1)});
 		}
 	};
 
-	// Треугольник на месте каждого среза и шестиугольник на месте каждой бывшей грани
 	for (int i = 0; i < 4; ++i) {
 		const int a = (i + 1) % 4, b = (i + 2) % 4, c = (i + 3) % 4;
 		addFace({cut(i, a), cut(i, b), cut(i, c)});
@@ -131,12 +113,9 @@ void buildMesh(std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
 	}
 }
 
-// ===== Ресурсы: uniform-буфер в RAM; текстура, вершины и индексы через staging-буфер в VRAM =====
-
 bool createResources(const std::vector<Vertex>& vertices, const std::vector<uint16_t>& indices) {
 	auto& context = graphics::internal::context;
 
-	// host = true: память видна CPU (можно писать memcpy); false: память на GPU (VRAM)
 	auto createBuffer = [&](VkDeviceSize size, VkBufferUsageFlags usage, bool host, Buffer& b) {
 		const VkBufferCreateInfo info = {
 			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -156,17 +135,15 @@ bool createResources(const std::vector<Vertex>& vertices, const std::vector<uint
 		return true;
 	};
 
-	// lodepng читает PNG с диска и раскодирует в массив пикселей RGBA, по 4 байта на пиксель
 	std::vector<unsigned char> pixels;
 	unsigned width = 0, height = 0;
-	if (lodepng::decode(pixels, width, height, TEXTURE_DIR "wood.png") != 0) return false;
+	if (lodepng::decode(pixels, width, height, TEXTURE_DIR "cat.png") != 0) return false;
 
 	const VkDeviceSize pixels_size = pixels.size();
 	const VkDeviceSize vertices_size = vertices.size() * sizeof(Vertex);
 	const VkDeviceSize indices_size = indices.size() * sizeof(uint16_t);
 	const VkBufferUsageFlags dst = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
-	// uniform и staging — в RAM; вершины и индексы — в VRAM, в них можно только копировать (TRANSFER_DST)
 	Buffer staging;
 	bool ok = createBuffer(sizeof(Uniforms), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true, uniform_buffer);
 	ok = ok && createBuffer(vertices_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | dst, false, vertex_buffer);
@@ -174,15 +151,12 @@ bool createResources(const std::vector<Vertex>& vertices, const std::vector<uint
 	ok = ok && createBuffer(pixels_size + vertices_size + indices_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true, staging);
 	if (!ok) return false;
 
-	// В staging подряд: пиксели, потом вершины, потом индексы
 	auto* staging_data = static_cast<char*>(staging.mapped);
 	std::memcpy(staging_data, pixels.data(), pixels_size);
 	std::memcpy(staging_data + pixels_size, vertices.data(), vertices_size);
 	std::memcpy(staging_data + pixels_size + vertices_size, indices.data(), indices_size);
 	vmaFlushAllocation(context.allocator, staging.allocation, 0, VK_WHOLE_SIZE);
 
-	// Изображение в VRAM: формат SRGB (GPU сам переведёт цвета в линейные при чтении),
-	// OPTIMAL — раскладка, удобная GPU; в него копируем (TRANSFER_DST) и из него читаем (SAMPLED)
 	const VkImageCreateInfo image_info = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		.imageType = VK_IMAGE_TYPE_2D,
@@ -201,7 +175,6 @@ bool createResources(const std::vector<Vertex>& vertices, const std::vector<uint
 		vmaCreateImage(context.allocator, &image_info, &image_alloc, &texture_image, &texture_allocation, nullptr);
 	if (image_result != VK_SUCCESS) return false;
 
-	// Свой пул и командный буфер для копирования — он отправится один раз
 	const VkCommandPoolCreateInfo pool_info = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 		.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
@@ -225,7 +198,6 @@ bool createResources(const std::vector<Vertex>& vertices, const std::vector<uint
 	};
 	vkBeginCommandBuffer(cmd, &begin);
 
-	// Барьер 1: изображение из неопределённого состояния -> цель копирования
 	const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 	VkImageMemoryBarrier image_barrier = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -241,7 +213,6 @@ bool createResources(const std::vector<Vertex>& vertices, const std::vector<uint
 	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
 		0, nullptr, 0, nullptr, 1, &image_barrier);
 
-	// Копирования из staging: пиксели в изображение, вершины и индексы в свои буферы
 	const VkBufferImageCopy image_copy = {
 		.bufferOffset = 0,
 		.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
@@ -253,8 +224,6 @@ bool createResources(const std::vector<Vertex>& vertices, const std::vector<uint
 	vkCmdCopyBuffer(cmd, staging.buffer, vertex_buffer.buffer, 1, &vertex_copy);
 	vkCmdCopyBuffer(cmd, staging.buffer, index_buffer.buffer, 1, &index_copy);
 
-	// Барьер 2: копирование закончено -> изображение готово к чтению во фрагментном шейдере,
-	// а вершины и индексы — к чтению на входе конвейера
 	image_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 	image_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 	image_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -269,7 +238,6 @@ bool createResources(const std::vector<Vertex>& vertices, const std::vector<uint
 		1, &buffers_barrier, 0, nullptr, 1, &image_barrier);
 	vkEndCommandBuffer(cmd);
 
-	// Отправляем на GPU и ждём конца; потом пул и staging больше не нужны
 	const VkSubmitInfo submit = {
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.commandBufferCount = 1,
@@ -280,8 +248,6 @@ bool createResources(const std::vector<Vertex>& vertices, const std::vector<uint
 	vkDestroyCommandPool(context.device, command_pool, nullptr);
 	vmaDestroyBuffer(context.allocator, staging.buffer, staging.allocation);
 
-	// Вид на изображение (шейдер работает через него) и сэмплер:
-	// LINEAR — смешивать соседние пиксели, REPEAT — повторять картинку за пределами [0, 1]
 	const VkImageViewCreateInfo view_info = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 		.image = texture_image,
@@ -304,8 +270,6 @@ bool createResources(const std::vector<Vertex>& vertices, const std::vector<uint
 
 }
 
-// ===== Инициализация: фигура -> ресурсы -> дескрипторы -> конвейер =====
-
 bool initialize() {
 	auto& context = graphics::internal::context;
 
@@ -319,8 +283,6 @@ bool initialize() {
 
 	if (!createResources(vertices, indices)) return false;
 
-	// Один набор на всё: слот 0 — динамический uniform-буфер (сдвиг задаётся при привязке),
-	// слот 1 — текстура вместе с сэмплером, её читает фрагментный шейдер
 	const VkDescriptorSetLayoutBinding set_bindings[] = {
 		{
 			.binding = 0,
@@ -344,7 +306,6 @@ bool initialize() {
 		return false;
 	}
 
-	// Пул умеет выделять оба типа дескрипторов
 	const VkDescriptorPoolSize pool_sizes[] = {
 		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1},
 		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
@@ -369,7 +330,6 @@ bool initialize() {
 		return false;
 	}
 
-	// Слот 0 — uniform-буфер (одна структура), слот 1 — сэмплер + вид на текстуру
 	const VkDescriptorBufferInfo buffer_info = {uniform_buffer.buffer, 0, sizeof(Uniforms)};
 	const VkDescriptorImageInfo image_info = {sampler, texture_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 	const VkWriteDescriptorSet writes[] = {
@@ -401,7 +361,6 @@ bool initialize() {
 		return false;
 	}
 
-	// Читаем SPIR-V (glslc компилирует его из GLSL при сборке) и создаём модуль шейдера
 	auto loadShader = [&](const char* path) {
 		VkShaderModule module = VK_NULL_HANDLE;
 		std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -435,7 +394,6 @@ bool initialize() {
 		},
 	};
 
-	// Три атрибута: позиция, нормаль, uv (два float)
 	const VkVertexInputBindingDescription vertex_binding = {0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
 	const VkVertexInputAttributeDescription attributes[] = {
 		{0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
@@ -449,7 +407,6 @@ bool initialize() {
 		.vertexAttributeDescriptionCount = 3,
 		.pVertexAttributeDescriptions = attributes,
 	};
-	// Остальные настройки конвейера — как в лабах 1 и 2
 	const VkPipelineInputAssemblyStateCreateInfo assembly = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
 		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -510,8 +467,6 @@ bool initialize() {
 	return vert && frag && result == VK_SUCCESS;
 }
 
-// ===== Завершение: ждём GPU и удаляем всё в обратном порядке =====
-
 void shutdown() {
 	auto& context = graphics::internal::context;
 	vkQueueWaitIdle(context.graphics_queue);
@@ -527,13 +482,10 @@ void shutdown() {
 	vmaDestroyBuffer(context.allocator, vertex_buffer.buffer, vertex_buffer.allocation);
 }
 
-// ===== Кадр на CPU: время -> меню -> угол -> матрицы и параметры света =====
-
 void update(double time) {
 	const float dt = previous_time < 0 ? 0.0f : std::min(float(time - previous_time), 0.1f);
 	previous_time = time;
 
-	// Меню как в лабе 2, но без Albedo — его заменила текстура
 	const ImGuiSliderFlags clamp = ImGuiSliderFlags_AlwaysClamp;
 	ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
 	ImGui::Begin("Lab 3", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
@@ -566,13 +518,11 @@ void update(double time) {
 	const auto extent = graphics::internal::context.swapchain_extent;
 	const float aspect = float(extent.width) / float(extent.height);
 	const glm::vec3 axis = glm::normalize(glm::vec3(0.3f, 1.0f, 0.2f));
-	// Куда смотрит камера, из yaw и pitch
 	const glm::vec3 forward = {
 		std::cos(camera_pitch) * std::sin(camera_yaw),
 		std::sin(camera_pitch),
 		-std::cos(camera_pitch) * std::cos(camera_yaw),
 	};
-	// Направление на источник света
 	const glm::vec3 to_light = {
 		std::cos(light_elevation) * std::sin(light_azimuth),
 		std::sin(light_elevation),
@@ -595,8 +545,6 @@ void update(double time) {
 		.specular = glm::vec4(specular_color, shininess),
 	};
 }
-
-// ===== Кадр на GPU: uniform-данные в буфер -> очистка -> рисование со сдвигом в динамическом буфере =====
 
 void render(const graphics::internal::FrameData& fd) {
 	auto& context = graphics::internal::context;
@@ -633,8 +581,6 @@ void render(const graphics::internal::FrameData& fd) {
 	vkCmdSetViewport(cmd, 0, 1, &viewport);
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-	// dynamic_offset — откуда в uniform-буфере читать структуру этого объекта.
-	// Объект один, поэтому 0; для i-го объекта было бы i * (размер структуры с выравниванием)
 	const VkDeviceSize offset = 0;
 	const uint32_t dynamic_offset = 0;
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
